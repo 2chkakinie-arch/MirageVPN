@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="ja" data-theme="aurora">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#070a16">
+<meta name="referrer" content="no-referrer">
+<title>MirageVPN — Secure Web Gateway</title>
+<meta name="description" content="MirageVPN: UV/WISP トランスポート、無料プロキシリスト自動更新、出口国籍選択、Brave 風シールド、リアルタイム脅威検知。">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%234d7cff'/%3E%3Cstop offset='1' stop-color='%23b45cff'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath d='M16 2 4 9v14l12 7 12-7V9z' fill='url(%23g)'/%3E%3Cpath d='M16 8.5 10 12v8l6 3.5 6-3.5v-8z' fill='%23fff' fill-opacity='.92'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+<div class="aurora" aria-hidden="true"><i></i><i></i><i></i></div>
+
+<!-- ============================ shell ============================ -->
+<div id="shell" class="shell">
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span class="brand-name">Mirage<em>VPN</em></span>
+      <span class="brand-badge" id="engineBadge" title="エンジン状態">…</span>
+    </div>
+
+    <div class="toolbar" role="toolbar" aria-label="メインツールバー">
+      <div class="nav-group">
+        <button class="ico" id="btnBack" title="戻る (Alt+←)" aria-label="戻る">
+          <svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <button class="ico" id="btnFwd" title="進む (Alt+→)" aria-label="進む">
+          <svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <button class="ico" id="btnReload" title="再読み込み (F5)" aria-label="再読み込み">
+          <svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.4-5.7M20 4v4h-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
+        <button class="ico" id="btnHome" title="ホーム" aria-label="ホーム">
+          <svg viewBox="0 0 24 24"><path d="M4 11.5 12 5l8 6.5V19a1 1 0 0 1-1 1h-4v-5H9v5H5a1 1 0 0 1-1-1z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+
+      <form id="addressForm" class="address" autocomplete="off">
+        <button type="button" class="shield-toggle" id="shieldToggle" aria-pressed="true" title="このサイトのシールドを切替">
+          <svg viewBox="0 0 24 24"><path d="M12 3l7 3v5.5c0 4.3-2.9 7.7-7 9.5-4.1-1.8-7-5.2-7-9.5V6z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9 12l2 2 4-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span class="shield-count" id="shieldCount">0</span>
+        </button>
+        <input id="address" name="q" type="text" spellcheck="false" autocapitalize="off" placeholder="サイト名、URL、または検索ワードを入力 (Ctrl/⌘+L)" aria-label="アドレスまたは検索">
+        <div class="addr-right">
+          <span class="mode-pill" id="modePill" title="転送モード">UV</span>
+          <button type="submit" class="go" title="開く (Enter)">
+            <svg viewBox="0 0 24 24"><path d="M5 12h12m-5-6 6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        </div>
+        <div class="suggest" id="suggest" hidden></div>
+      </form>
+
+      <div class="nav-group">
+        <button class="ico" id="btnEgress" title="出口の国籍" aria-label="出口の国籍">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3.5 12h17M12 3.5c2.5 2.6 2.5 14 0 17M12 3.5c-2.5 2.6-2.5 14 0 17" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+          <span class="flag" id="egressFlag">🌐</span>
+        </button>
+        <button class="ico" id="btnThreats" title="脅威レポート" aria-label="脅威レポート">
+          <svg viewBox="0 0 24 24"><path d="M12 3.5 4.5 7v5c0 4.6 3.1 8 7.5 9.5 4.4-1.5 7.5-4.9 7.5-9.5V7z" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 8.5v4.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="16.2" r="1.1" fill="currentColor"/></svg>
+          <span class="dot" id="threatDot" hidden></span>
+        </button>
+        <button class="ico" id="btnSettings" title="設定" aria-label="設定">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 3v2.2M12 18.8V21M3 12h2.2M18.8 12H21M5.6 5.6l1.6 1.6M16.8 16.8l1.6 1.6M18.4 5.6l-1.6 1.6M7.2 16.8l-1.6 1.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        </button>
+        <button class="ico" id="btnNewTab" title="新規タブ (Ctrl/⌘+T)" aria-label="新規タブ">
+          <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ============================ tabs ============================ -->
+  <div class="tabstrip" id="tabstrip" role="tablist" aria-label="開いているタブ">
+    <div class="tabs" id="tabs"></div>
+    <button class="tab-add" id="tabAdd" title="新規タブ" aria-label="新規タブ">+</button>
+  </div>
+
+  <!-- ============================ stage ============================ -->
+  <main class="stage">
+    <section class="view view-browser" id="viewBrowser">
+      <div class="frames" id="frames"></div>
+      <div class="hero" id="hero">
+        <div class="hero-card">
+          <h1>どこから、<span class="grad">どう見せる</span>か。</h1>
+          <p class="lead">
+            UV (高速) を既定に、重たい通信は WISP トンネルへ。GitHub の無料プロキシリストを常時取り込み、
+            広告とトラッカーを遮断し、危険な要素は検知したその場で自動削除します。
+          </p>
+          <form class="hero-search" id="heroSearch">
+            <input type="text" id="heroInput" placeholder="例: youtube.com / wikipedia / 無料 プロキシ" aria-label="検索または URL">
+            <button type="submit">接続</button>
+          </form>
+          <div class="hero-quick" id="heroQuick"></div>
+          <div class="hero-stats" id="heroStats"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================= side panels ======================= -->
+    <aside class="panel" id="panelEgress" hidden aria-label="出口プロキシ">
+      <header class="panel-head">
+        <h2>出口の国籍</h2>
+        <button class="x" data-close="panelEgress">✕</button>
+      </header>
+      <div class="panel-body">
+        <div class="verify" id="egressVerify">
+          <div class="verify-row">
+            <span class="k">あなたのブラウザが見せる IP</span>
+            <span class="v" id="verifySent">—</span>
+          </div>
+          <div class="verify-row">
+            <span class="k">上流が実際に見る IP</span>
+            <span class="v" id="verifyExit">—</span>
+          </div>
+          <div class="verify-note" id="verifyNote">「検証」を押すと、選んだ出口経由で自分の公開 IP を確認します。</div>
+          <div class="verify-actions">
+            <button class="btn primary" id="btnVerify">出口を検証</button>
+            <button class="btn" id="btnRefreshPool" title="GitHub リストを再取得">リスト更新</button>
+            <button class="btn" id="btnProbePool" title="生きているかを再検査">健全性チェック</button>
+          </div>
+        </div>
+
+        <div class="segbar" role="group" aria-label="出口戦略">
+          <button class="seg" data-strategy="auto">AUTO</button>
+          <button class="seg" data-strategy="pool">POOL</button>
+          <button class="seg" data-strategy="direct">DIRECT</button>
+          <select id="protoSel" title="利用するプロトコル" aria-label="プロトコル">
+            <option value="">全プロトコル</option>
+            <option value="http">HTTP</option>
+            <option value="https">HTTPS</option>
+            <option value="socks5">SOCKS5</option>
+            <option value="socks4">SOCKS4</option>
+          </select>
+        </div>
+
+        <h3 class="panel-sub">GitHub リスト <span class="muted" id="listNext"></span></h3>
+        <div class="listfeed" id="listFeed" aria-live="polite"></div>
+
+        <div class="country-search">
+          <input type="search" id="countryFilter" placeholder="国名 / コードで絞り込み" aria-label="国を絞り込む">
+          <span class="muted" id="countryCount"></span>
+        </div>
+        <div class="country-grid" id="countryGrid"></div>
+
+        <h3 class="panel-sub">プール内トップ <span class="muted">(延迟 / スコア)</span></h3>
+        <div class="table-wrap">
+          <table class="tbl" id="poolTable">
+            <thead><tr><th>国</th><th>出口</th><th>用途</th><th class="r">延迟</th><th class="r">score</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </aside>
+
+    <aside class="panel" id="panelThreats" hidden aria-label="脅威レポート">
+      <header class="panel-head">
+        <h2>脅威レポート <span class="muted" id="threatTotal"></span></h2>
+        <div class="spacer"></div>
+        <button class="btn tiny" id="btnThreatExport">JSON</button>
+        <a class="btn tiny" id="btnThreatPrint" href="/mirage/api/threats/report.html" target="_blank" rel="noopener">印刷</a>
+        <button class="btn tiny danger" id="btnThreatPurge">履歴削除</button>
+        <button class="x" data-close="panelThreats">✕</button>
+      </header>
+      <div class="panel-body">
+        <div class="cards" id="threatCards"></div>
+        <div class="feed" id="threatFeed"></div>
+        <div class="rules" id="threatRules"></div>
+      </div>
+    </aside>
+
+    <aside class="panel" id="panelSettings" hidden aria-label="設定">
+      <header class="panel-head">
+        <h2>設定</h2>
+        <button class="x" data-close="panelSettings">✕</button>
+      </header>
+      <div class="panel-body" id="settingsBody"></div>
+    </aside>
+  </main>
+
+  <!-- ============================ statusbar ============================ -->
+  <footer class="statusbar">
+    <div class="sb-left">
+      <span class="sb-item" id="sbTransport" title="転送モード">UV</span>
+      <span class="sb-item" id="sbEgress" title="出口">direct</span>
+      <span class="sb-item" id="sbPool" title="プロキシプール">pool —</span>
+      <span class="sb-item" id="sbShields" title="シールド">shields —</span>
+      <span class="sb-item" id="sbThreats" title="脅威">threats —</span>
+      <span class="sb-item" id="sbCache" title="キャッシュ">cache —</span>
+    </div>
+    <div class="sb-right">
+      <span class="sb-item mono" id="sbRate" title="スループット"><canvas id="spark" width="120" height="18"></canvas><b id="sbRateText">0 B/s</b></span>
+      <span class="sb-item" id="sbVersion"></span>
+    </div>
+  </footer>
+</div>
+
+<div class="toast-wrap" id="toasts" aria-live="polite"></div>
+<div class="modal" id="modal" hidden><div class="modal-card" id="modalCard"></div></div>
+<noscript><p style="padding:24px;color:#fff">MirageVPN の UI は JavaScript を必要とします。</p></noscript>
+<script src="/assets/app.js" type="module"></script>
+</body>
+</html>

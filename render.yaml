@@ -1,0 +1,31 @@
+# Render Blueprints — `Render Dashboard → New + → Blueprint` でこのファイルを渡すだけ。
+services:
+  - type: web
+    name: miragevpn
+    runtime: node
+    plan: free
+    region: singapore
+    rootDir: .
+    buildCommand: npm ci --omit=dev
+    startCommand: node server/index.js
+    healthCheckPath: /mirage/api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MIRAGE_SECRET
+        generateValue: true
+      - key: MIRAGE_EGRESS
+        value: auto
+      - key: MIRAGE_LIST_AUTO_REFRESH
+        value: "1"
+      - key: MIRAGE_ADBLOCK
+        value: "1"
+      - key: MIRAGE_WISP
+        value: "1"
+      - key: MIRAGE_STATE_DIR
+        value: /var/tmp/miragevpn
+      - key: MIRAGE_PERSIST
+        value: "1"
+      - key: MIRAGE_MODE
+        value: uv

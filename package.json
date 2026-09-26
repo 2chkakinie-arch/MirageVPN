@@ -1,0 +1,68 @@
+{
+  "name": "miragevpn",
+  "version": "1.0.0",
+  "description": "MirageVPN — Web-UI プロキシ / 軽量Web VPN。UV(高速)・WISP(多重化トンネル)トランスポート、GitHubフリープロキシリスト自動更新＋国籍判定による出口IP偽装、Brave風シールド(広告ブロック)、リアルタイム脅威検知と自動除去。",
+  "type": "module",
+  "license": "MIT",
+  "keywords": [
+    "web-proxy",
+    "ultraviolet",
+    "wisp",
+    "privacy",
+    "adblock",
+    "geoip",
+    "proxy-list",
+    "threat-detection",
+    "express",
+    "vercel",
+    "render",
+    "railway"
+  ],
+  "engines": {
+    "node": ">=18.17.0"
+  },
+  "main": "server/index.js",
+  "exports": {
+    ".": "./server/app.js",
+    "./config": "./server/config.js"
+  },
+  "bin": {
+    "miragevpn": "server/index.js"
+  },
+  "files": [
+    "server",
+    "public",
+    "data",
+    "api",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "test": "node --test",
+    "fixtures:tls": "node scripts/gen-tls-fixture.mjs",
+    "test:e2e": "node --test test/e2e-proxy.test.js",
+    "lint": "node scripts/lint.mjs",
+    "typecheck": "node scripts/lint.mjs --check-only",
+    "seeds:refresh": "node scripts/build-seeds.mjs",
+    "docker:build": "docker build -t miragevpn .",
+    "docker:run": "docker run --rm -p 8080:8080 -e MIRAGE_SECRET=change-me miragevpn",
+    "origin": "node scripts/dev-origin.mjs",
+    "smoke": "node scripts/smoke.mjs"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {},
+  "optionalDependencies": {},
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/2chkakinie-arch/MirageVPN.git"
+  },
+  "bugs": {
+    "url": "https://github.com/2chkakinie-arch/MirageVPN/issues"
+  },
+  "homepage": "https://github.com/2chkakinie-arch/MirageVPN#readme"
+}

@@ -1,0 +1,12 @@
+.git
+.github
+node_modules
+data/state
+npm-debug.log
+*.log
+.DS_Store
+.vercel
+test
+scripts
+README.md
+docker-compose.yml
