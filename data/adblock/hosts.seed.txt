@@ -1,0 +1,130 @@
+! ---------------------------------------------------------------------
+! MirageVPN — hard-block tier (同梱シード / always-on)
+! ---------------------------------------------------------------------
+! どの外部リストも取得・解釈できなかったときでも「これだけは落とす」層。
+! 広告ネットワーク / レーティング / 追跡 SDK のホストだけを、EasyList が
+! ホスト単位でブロックしている集合から選んでいます (サブドメインは暗黙含む)。
+!
+!   形式   : ABP 構文 `||domain^` (ホスト単位ブロック) または `||domain/path`
+!   追加   : MIRAGE_AD_LISTS にカンマ区切りで URL を足せば、そこからも読みます
+!   無効化 : UI のサイト別トグル、またはこのファイルを空にして再起動
+!
+! 入れるべきでないもの (サイトの機能を壊すため意図的に除外):
+!   - 画像・JS の CDN 全般 (例: pinimg.com, cdnjs, unpkg)
+!   - 認証と共通のホスト (accounts.google.com など)
+!   - 埋め込みフォームのホスト (hsforms.net, list-manage.com など)
+! ---------------------------------------------------------------------
+
+! --- Google 広告 / 測定 ---------------------------------------------
+||doubleclick.net^
+||googlesyndication.com^
+||googleadservices.com^
+||googletagservices.com^
+||adservice.google.
+||google-analytics.com^
+||googleoptimize.com^
+||googleadservices.com/pagead/conversion
+||googletagmanager.com/gtag/js
+||googletagmanager.com/gtm.js
+
+! --- 広告 exchange / SSP / DSP ---------------------------------------
+||adnxs.com^
+||pubmatic.com^
+||rubiconproject.com^
+||openx.net^
+||indexww.com^
+||spotxchange.com^
+||sojern.com^
+||casalemedia.com^
+||yieldmo.com^
+||media.net^
+||smartadserver.com^
+||sharethrough.com^
+||springserve.com^
+||triplelift.com^
+||adform.net^
+||criteo.com^
+||criteo.net^
+||improvedigital.com^
+||rhythmone.com^
+||nativo.com^
+||taboola.com^
+||outbrain.com^
+||amoad.com^
+||onetag-sys.com^
+||adtelligent.com^
+||pubnation.com^
+||adsafeprotected.com^
+||moatads.com^
+||doubleverify.com^
+||integralads.com^
+
+! --- 追跡 / アクセス解析 ---------------------------------------------
+||scorecardresearch.com^
+||quantserve.com^
+||quantcount.com^
+||chartbeat.com^
+||chartbeat.net^
+||kissmetrics.com^
+||kissmetrics.io^
+||mixpanel.com^
+||segment.io^
+||segment.com^
+||amplitude.com^
+||heapanalytics.com^
+||hotjar.com^
+||hotjar.io^
+||fullstory.com^
+||logrocket.com^
+||logrocket.io^
+||clarity.ms^
+||mc.yandex.ru^
+||mc.yandex.com^
+||an.yandex.ru^
+||top-fwz1.mail.ru^
+||webtrends.com^
+||omtrdc.net^
+||demdex.net^
+||krxd.net^
+||bat.bing.com^
+||go-mpulse.net^
+||quantummetric.com^
+
+! --- モバイル / SDK 系 ------------------------------------------------
+||appsflyer.com^
+||adjust.com^
+||branch.io^
+||unityads.unity3d.com^
+||adcolony.com^
+||ironsource.com^
+||inmobi.com^
+
+! --- 動画 / インストリーム -------------------------------------------
+||innovid.com^
+||tubemogul.com^
+||flite.com^
+||tuneadv.com^
+||videologygroup.com^
+||smartstream.tv^
+
+! --- ポップアンダー / 詐欺寄りの広告網 --------------------------------
+||exoclick.com^
+||exosrv.com^
+||propellerads.com^
+||popads.net^
+||popcash.net^
+||hilltopads.net^
+||adsterra.com^
+||juicyads.com^
+||revcontent.com^
+||content.ad^
+||revenuehits.com^
+
+! --- SNS 広告 / ピクセル ----------------------------------------------
+||an.facebook.com^
+||facebook.com/tr
+||ads-api.twitter.com^
+||ads.twitter.com^
+||analytics.tiktok.com^
+||ads.tiktok.com^
+||sc-static.net^

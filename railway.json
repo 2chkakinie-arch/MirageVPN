@@ -1,0 +1,15 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "builder": "RAILPACK",
+    "buildCommand": "npm ci --omit=dev"
+  },
+  "deploy": {
+    "startCommand": "node server/index.js",
+    "healthcheckPath": "/mirage/api/health",
+    "healthcheckTimeout": 180,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 8,
+    "numReplicas": 1
+  }
+}
