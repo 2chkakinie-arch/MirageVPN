@@ -19,7 +19,7 @@
     "railway"
   ],
   "engines": {
-    "node": ">=18.17.0"
+    "node": "22.x"
   },
   "main": "server/index.js",
   "exports": {
