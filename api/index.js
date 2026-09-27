@@ -34,5 +34,4 @@ export default async function handler(req, res) {
 /** Vercel 組み込みの body パーサを止めて、プロキシの生ボディを守る */
 export const config = {
   api: { bodyParser: false },
-  runtime: 'nodejs',
 };
