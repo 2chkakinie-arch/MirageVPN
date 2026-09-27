@@ -96,6 +96,8 @@ async function api(path, opts = {}) {
     init.body = typeof opts.body === 'string' ? opts.body : JSON.stringify(opts.body);
   }
   if (clientIdCookie) init.headers['x-mirage-client'] = clientIdCookie;
+  // Never leave the UI waiting forever when a serverless cold start or upstream stalls.
+  init.signal = AbortSignal.timeout(opts.timeoutMs || 12000);
   const res = await fetch(API + path, init);
   const ct = res.headers.get('content-type') || '';
   const data = ct.includes('json') ? await res.json().catch(() => null) : await res.text();
@@ -845,10 +847,14 @@ function submitAddress(value) {
 /* status polling / rendering                                        */
 /* ------------------------------------------------------------------ */
 
+let statusRefreshInFlight = false;
 async function refreshStatus() {
+  if (statusRefreshInFlight) return;
+  statusRefreshInFlight = true;
   try {
-    const s = await api('/status');
+    const s = await api('/status', { timeoutMs: 10000 });
     state.status = s;
+    // Render server health independently; a slow settings endpoint must not hide a valid status.
     state.settings = await mergeClientSettings();
     state.selectedCountry = s.egress.country || 'AUTO';
     state.strategy = s.egress.strategy || 'auto';
@@ -888,8 +894,12 @@ async function refreshStatus() {
     if (!state.countries.length) loadCountries();
     if (!state.pool.items.length) loadPool();
   } catch (err) {
-    $('#engineBadge').textContent = 'offline';
-    $('#engineBadge').dataset.state = 'warn';
+    const badge = $('#engineBadge');
+    badge.textContent = 'offline · 再接続中';
+    badge.dataset.state = 'warn';
+    badge.title = err?.message || 'API に接続できません';
+  } finally {
+    statusRefreshInFlight = false;
   }
 }
 
@@ -1105,7 +1115,7 @@ async function registerSW() {
   try {
     let cfg = { swPath: '/mirage/sw.js', swScope: '/' };
     try {
-      cfg = { ...cfg, ...(await fetch('/mirage/client-config').then((r) => r.json())) };
+      cfg = { ...cfg, ...(await fetch('/mirage/client-config', { signal: AbortSignal.timeout(4000) }).then((r) => r.json())) };
     } catch (e) {
       /* default */
     }
@@ -1330,7 +1340,8 @@ async function boot() {
   if (!localStorage.getItem(LS.mode)) localStorage.setItem(LS.mode, 'uv');
   wire();
   renderHero();
-  await registerSW();
+  // Service worker installation is optional for rendering; don't let it block dashboard startup.
+  registerSW().catch((err) => console.warn('SW setup skipped:', err?.message));
   await refreshStatus();
   pollThreats();
   pollMetrics();
