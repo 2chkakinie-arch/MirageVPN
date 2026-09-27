@@ -15,12 +15,13 @@
 'use strict';
 
 const PREFIX = self.__MIRAGE_PREFIX || '/mirage/t';
-const API = '/mirage/api';
-const INTERNAL = ['/mirage/api', '/mirage/core.js', '/mirage/sw.js', '/mirage/wisp-client.js', '/mirage/static', '/assets', '/icons', '/manifest'];
+const API = self.__MIRAGE_API_PREFIX || '/mirage/api';
+const BASE_PATH = self.__MIRAGE_BASE_PATH || '';
+const INTERNAL = [API, `${BASE_PATH}/mirage/core.js`, `${BASE_PATH}/mirage/sw.js`, `${BASE_PATH}/mirage/wisp-client.js`, `${BASE_PATH}/mirage/static`, `${BASE_PATH}/assets`, `${BASE_PATH}/icons`, `${BASE_PATH}/manifest`];
 const modeOverrides = new Map(); // sid → 'uv' | 'wisp' | 'auto'
 
 try {
-  importScripts('/mirage/wisp-client.js');
+  importScripts(self.__MIRAGE_SW_CFG?.wispClientUrl || `${BASE_PATH}/mirage/wisp-client.js`);
 } catch (e) {
   // WISP クライアントが無い環境 (serverless など) では UV のみ
 }

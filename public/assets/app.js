@@ -12,7 +12,10 @@
  */
 /* global window, document, location, navigator, customElements */
 
-const API = '/mirage/api';
+const BASE_PATH = document.querySelector('meta[name="mirage-base-path"]')?.content || '';
+const rootPath = (path) => `${BASE_PATH}${path}`;
+const API = rootPath('/mirage/api');
+const apiPath = (path = '') => `${API}${path.startsWith('/') ? path : `/${path}`}`;
 const LS = { mode: 'mirage.mode', lang: 'mirage.lang', theme: 'mirage.theme', recent: 'mirage.recent' };
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -98,7 +101,7 @@ async function api(path, opts = {}) {
   if (clientIdCookie) init.headers['x-mirage-client'] = clientIdCookie;
   // Never leave the UI waiting forever when a serverless cold start or upstream stalls.
   init.signal = AbortSignal.timeout(opts.timeoutMs || 12000);
-  const res = await fetch(API + path, init);
+  const res = await fetch(apiPath(path), init);
   const ct = res.headers.get('content-type') || '';
   const data = ct.includes('json') ? await res.json().catch(() => null) : await res.text();
   if (!res.ok) throw Object.assign(new Error((data && data.message) || (data && data.error) || `HTTP ${res.status}`), { status: res.status, data });
@@ -113,6 +116,7 @@ const state = {
   tabs: [], // {id, sid, title, url, host, blocked, threat, ready, favicon}
   active: null,
   status: null,
+  statusError: null,
   settings: null,
   threats: { seen: new Set(), events: [], totals: null, topRules: [] },
   countries: [],
@@ -188,7 +192,9 @@ function closeTab(id) {
   const i = state.tabs.findIndex((t2) => t2.id === id);
   if (i === -1) return;
   const [gone] = state.tabs.splice(i, 1);
-  fetch(`iframe-${gone.sid}`)?.remove();
+  // `fetch("iframe-…")` は DOM を消さない。閉じたタブの iframe が残り続けると
+  // 非表示でも通信・メモリを使い、次第に「開けない」状態になる。
+  $(`#iframe-${gone.sid}`)?.remove();
   api('/tabs/close', { body: { sid: gone.sid } }).catch(() => {});
   if (state.active === id) state.active = state.tabs.at(-1)?.id || null;
   renderTabs();
@@ -297,6 +303,10 @@ function renderTabs() {
 
 function renderFrames() {
   const wrap = $('#frames');
+  const live = new Set(state.tabs.map((tab) => tab.sid));
+  $$('.frames iframe', wrap).forEach((frame) => {
+    if (!live.has(frame.dataset.sid)) frame.remove();
+  });
   for (const tab of state.tabs) {
     if (!$(`#iframe-${tab.sid}`)) {
       const f = el('iframe', {
@@ -377,7 +387,9 @@ function renderHero() {
         ['shields', fmtNum(s.shields.blocked), `${fmtNum(s.shields.rules)} rules`],
         ['threats', fmtNum(s.threats.events), s.threats.autoDelete ? '自動削除 ON' : '自動削除 OFF'],
       ]
-    : [['status', '—', '読み込み中…']];
+    : state.statusError
+      ? [['status', 'OFFLINE', 'サーバーに再接続中…']]
+      : [['status', '—', '接続を確認中…']];
   for (const [k, v, sub] of cards) stats.append(el('div', { class: 'hs' }, [el('div', { class: 'k', text: k }), el('div', { class: 'v', text: v }), el('div', { class: 's', text: sub })]));
 }
 
@@ -498,7 +510,12 @@ function renderListFeed(lists) {
   }
   if (!src.length) {
     box.textContent = '';
-    box.append(el('div', { class: 'empty', text: 'リストソースが未設定です (MIRAGE_LIST_SOURCES)。同梱シードだけで動いています。' }));
+    box.append(el('div', {
+      class: 'empty',
+      text: lists?.enabled === false
+        ? '自動更新は OFF です。同梱シードを使用しています。'
+        : 'GitHub のプロキシリストを取得中… 数秒後にソース別の結果を表示します。',
+    }));
     return;
   }
   const rows = [...src].sort((a, b) => (b.count || 0) - (a.count || 0));
@@ -854,8 +871,16 @@ async function refreshStatus() {
   try {
     const s = await api('/status', { timeoutMs: 10000 });
     state.status = s;
-    // Render server health independently; a slow settings endpoint must not hide a valid status.
-    state.settings = await mergeClientSettings();
+    state.statusError = null;
+    // /status を受け取った時点でホームの「読み込み中」を終わらせる。
+    // 設定 API は別リクエストなので、そこで詰まってダッシュボード全体を止めない。
+    renderHero();
+    if (!state.settings) {
+      mergeClientSettings().then((settings) => {
+        state.settings = settings;
+        if (state.panel === 'panelSettings') renderSettings();
+      }).catch(() => {});
+    }
     state.selectedCountry = s.egress.country || 'AUTO';
     state.strategy = s.egress.strategy || 'auto';
     $('#engineBadge').textContent = `pool ${fmtNum(s.egress.pool.size)} · ${fmtNum(s.shields.rules)} rules`;
@@ -894,10 +919,12 @@ async function refreshStatus() {
     if (!state.countries.length) loadCountries();
     if (!state.pool.items.length) loadPool();
   } catch (err) {
+    state.statusError = err;
     const badge = $('#engineBadge');
     badge.textContent = 'offline · 再接続中';
     badge.dataset.state = 'warn';
     badge.title = err?.message || 'API に接続できません';
+    renderHero();
   } finally {
     statusRefreshInFlight = false;
   }
@@ -1113,9 +1140,9 @@ async function measureSpeed() {
 async function registerSW() {
   if (!('serviceWorker' in navigator)) return false;
   try {
-    let cfg = { swPath: '/mirage/sw.js', swScope: '/' };
+    let cfg = { swPath: rootPath('/mirage/sw.js'), swScope: rootPath('/') || '/' };
     try {
-      cfg = { ...cfg, ...(await fetch('/mirage/client-config', { signal: AbortSignal.timeout(4000) }).then((r) => r.json())) };
+      cfg = { ...cfg, ...(await fetch(rootPath('/mirage/client-config'), { signal: AbortSignal.timeout(4000) }).then((r) => r.json())) };
     } catch (e) {
       /* default */
     }
@@ -1157,6 +1184,8 @@ function wire() {
     b.onclick = () => togglePanel(b.dataset.close);
   });
   $('#btnVerify').onclick = verifyExit;
+  // index.html の静的な絶対 URL に依存せず、サブパス配信でも印刷レポートを開ける。
+  $('#btnThreatPrint').href = apiPath('/threats/report.html');
   $('#btnRefreshPool').onclick = async (e) => {
     e.target.classList.add('loading');
     try {

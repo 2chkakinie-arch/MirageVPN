@@ -43,7 +43,7 @@ async function main() {
    ╚██║  ██║██║     ╚██████╔╝██║  ██║╚██████╔╝     ╚████╔╝ ██║ ╚═╝ ██║
     ╚═╝  ╚═╝╚═╝      ╚══▀▀═╝ ╚═╝  ╚═╝ ╚═════╝       ╚═══╝  ╚═╝     ╚═╝
   MirageVPN v${config.meta.version} "${config.meta.codename}"  —  ${url}
-    transport : ${config.transport.defaultMode.toUpperCase()}${config.wisp.enabled ? ' + WISP (' + config.wisp.path + ')' : ''}
+    transport : ${config.transport.defaultMode.toUpperCase()}${config.wisp.enabled ? ' + WISP (' + config.basePath + config.wisp.path + ')' : ''}
     egress    : ${config.egress.defaultStrategy}${config.egress.country ? ' / ' + config.egress.country : ' / auto-detect'}  (pool=${engine.pool.summary().size})
     shields   : ${engine.shields.summary().rules} rules  (cosmetic ${engine.shields.summary().cosmeticRules})
     threats   : ${engine.threats.stats().enabled ? 'on' : 'off'}  (autoDelete ${engine.threats.stats().autoDelete ? 'on' : 'off'})

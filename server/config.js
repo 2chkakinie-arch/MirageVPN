@@ -158,7 +158,9 @@ export function loadConfig(env = process.env) {
       /** GitHub 生ファイルがブロックされた環境向けの api.github.com ミラー */
       githubApiMirror: BOOL(env.MIRAGE_GITHUB_API_MIRROR, true),
       /** ミラーの優先順位 */
-      mirrorOrder: LIST(env.MIRAGE_MIRROR_ORDER, ['raw', 'github-api', 'jsdelivr', 'codeberg']),
+      // raw.githubusercontent.com は環境によって TLS/egress 制限を受けやすい。
+      // GitHub API は同じリポジトリを直接返せるため、まず API を試してからミラーへ落とす。
+      mirrorOrder: LIST(env.MIRAGE_MIRROR_ORDER, ['github-api', 'raw', 'jsdelivr', 'codeberg']),
       minKeep: NUM(env.MIRAGE_MIN_KEEP, 40),
     },
 

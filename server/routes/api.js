@@ -46,7 +46,7 @@ export function createApiRouter(ctx) {
 
   r.get('/status', async (req, res) => {
     const settings = store.settingsFor(req.mirage.clientId);
-    const client = await clientCountry(req, engine.geo);
+    const client = await clientCountry(req, engine.geo, { lookup: false });
     res.json({
       app: config.meta,
       time: Date.now(),
@@ -150,7 +150,13 @@ export function createApiRouter(ctx) {
     const proxy =
       strategy === 'direct'
         ? null
-        : pool.select({ country: country || undefined, sid: req.query.sid || `verify-${uid(4)}`, allowFallback: strategy === 'auto', protocols: settings.egress?.protocols });
+        : pool.select({
+          country: country || undefined,
+          sid: req.query.sid || `verify-${uid(4)}`,
+          allowFallback: strategy === 'auto',
+          protocols: settings.egress?.protocols,
+          requireHealthy: strategy === 'auto',
+        });
     attempts.push({ label: proxy ? `${proxy.protocol}://${proxy.host}:${proxy.port}` : 'direct', proxy });
     if (strategy === 'auto' && !proxy) attempts.push({ label: 'direct', proxy: null });
 

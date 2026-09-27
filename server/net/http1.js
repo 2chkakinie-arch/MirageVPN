@@ -42,8 +42,11 @@ export class HttpError extends Error {
  * @property {string} [password]
  */
 
-/** プロキシ経由で target への「リクエストを書ける socket」を作る */
-export async function dial({ host, port, secure, proxy, timeoutMs = 12000, servername, signal }) {
+/**
+ * プロキシ経由で target への「リクエストを書ける socket」を作る
+ * @param {{host:string,port:number,secure?:boolean,proxy?:ProxyDef|null,timeoutMs?:number,servername?:string,signal?:AbortSignal,tls?:{ca?:string[],rejectUnauthorized?:boolean,minVersion?:string}}} [o]
+ */
+export async function dial({ host, port, secure, proxy, timeoutMs = 12000, servername, signal, tls: tlsOpts }) {
   const t0 = Date.now();
   const connectTimeout = { timeout: timeoutMs };
   let socket;
@@ -88,21 +91,33 @@ export async function dial({ host, port, secure, proxy, timeoutMs = 12000, serve
           socket: sock,
           servername: sni || undefined,
           ALPNProtocols: alpn,
-          rejectUnauthorized: false, // 上流の自己署名/期限切れで全滅しないため (プロキシとしての仕様)
-          minVersion: 'TLSv1.2',
-        },
-        () => {
-          ts.setTimeout(0);
-          resolve(ts);
+          // 中継する上流サイトは「証明書が古くても表示を止めない」= 宽松 (プロキシとしての仕様)。
+          // 当方自身の管理通信 (リスト取得/Geo/検証) は tlsOpts で厳格検証に切り替える (net/trust.js)。
+          rejectUnauthorized: tlsOpts?.rejectUnauthorized ?? false,
+          ca: tlsOpts?.ca,
+          minVersion: tlsOpts?.minVersion || 'TLSv1.2',
         },
       );
       ts.setTimeout(timeoutMs);
-      ts.once('timeout', () => ts.destroy(new HttpError('TLS ハンドシェイクがタイムアウトしました', { code: 'tls_timeout' })));
-      ts.once('error', (err) => {
+      const onTimeout = () => ts.destroy(new HttpError('TLS ハンドシェイクがタイムアウトしました', { code: 'tls_timeout' }));
+      ts.once('timeout', onTimeout);
+      const onTlsError = (err) => {
         ts.destroy();
         reject(new HttpError(`TLS エラー (${sni}): ${err.message}`, { code: err.code || 'tls_failed', stage: 'tls', cause: err }));
-      });
-      sock.once('error', (err) => ts.destroy(err));
+      };
+      ts.once('error', onTlsError);
+      // 下層 socket の番人はハンドシェイク成功後に必ず外す (keep-alive で再利用されるため、
+      // 外さないと再利用のたびに listener が積み上がり MaxListenersExceeded になる)
+      const onSockError = (err) => ts.destroy(err);
+      sock.once('error', onSockError);
+      const ok = () => {
+        ts.setTimeout(0);
+        ts.off('timeout', onTimeout);
+        ts.off('error', onTlsError);
+        sock.off('error', onSockError);
+        resolve(ts);
+      };
+      ts.once('secureConnect', ok);
     });
 
   const proto = proxy?.protocol || 'direct';
@@ -510,6 +525,9 @@ export class Http1Pool {
         this.stats.dropped++;
         continue;
       }
+      // idle 中はプロセスを存活させない (serverless/スクリプトが終了できるように)。使う時に戻す
+      try { e.socket.ref(); } catch { /* ignore */ }
+      if (!arr.length) this.idle.delete(key);
       this.stats.reuse++;
       return e.socket;
     }
@@ -554,6 +572,9 @@ export class Http1Pool {
     }
     arr.push({ socket, at: Date.now() });
     this.idle.set(key, arr);
+    // idle ソケットがイベントループを生かし続けないようにする
+    // (これをしないと serverless の応答完了後や CLI スクリプトが数十秒終了できない)
+    try { socket.unref(); } catch { /* ignore */ }
     // idle 中は data を捨てないよう listener を待たせる
   }
 
@@ -602,6 +623,7 @@ export async function request(o) {
     signal = null,
     httpVersionString = '1.1',
     rawPathOverride = null,
+    tls = null,
   } = o;
 
   const target = typeof url === 'string' ? new URL(url) : url;
@@ -609,7 +631,8 @@ export async function request(o) {
   const port = Number(target.port) || (secure ? 443 : 80);
   const hostHeader = target.host; // ポート含む
   const proxyKey = proxy?.host ? `${proxy.protocol}:${proxy.host}:${proxy.port}` : 'direct';
-  const key = `${proxyKey}|${target.origin}|${secure ? 1 : 0}`;
+  const trustKey = tls?.rejectUnauthorized ? 'strict' : 'loose';
+  const key = `${proxyKey}|${target.origin}|${secure ? 1 : 0}|${trustKey}`;
 
   let socket = pool?.take(key) || null;
   let forwardAbsolute = false;
@@ -623,6 +646,7 @@ export async function request(o) {
       timeoutMs: connectTimeoutMs,
       servername: target.hostname,
       signal,
+      tls,
     });
     socket = dialed.socket;
     forwardAbsolute = dialed.forwardAbsolute;
@@ -655,6 +679,7 @@ export async function request(o) {
   let parser = null;
   let settled = false;
   let released = false;
+  let requestFail = null;
 
   const arm = () => {
     if (idleTimeoutMs > 0) {
@@ -676,6 +701,8 @@ export async function request(o) {
     released = true;
     clearTimers();
     if (signal) signal.removeEventListener?.('abort', onAbort);
+    // keep-alive で socket を返し回すので、このリクエスト専用の error 番人は必ず外す
+    if (requestFail) socket.off('error', requestFail);
     if (pool) pool.give(key, socket, !parser?.done || !parser?.reusable);
     else if (!socket.destroyed) socket.destroy();
   };
@@ -694,16 +721,19 @@ export async function request(o) {
   return await new Promise((resolve, reject) => {
     const fail = (err) => {
       if (settled) {
+        socket.off('error', fail);
         out.destroy(err);
         return;
       }
       settled = true;
       clearTimers();
       if (signal) signal.removeEventListener?.('abort', onAbort);
+      socket.off('error', fail);
       if (socket && !socket.destroyed) socket.destroy();
       reject(err);
     };
-    socket.once('error', fail);
+    requestFail = fail;
+    socket.on('error', fail);
 
     parser = new ResponseParser(socket, {
       method,
