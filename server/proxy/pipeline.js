@@ -318,7 +318,9 @@ export class Pipeline {
         httpsTarget,
         sid: rotate === 'per-request' ? undefined : req.sid,
         allowFallback: s.allowFallback !== false && country !== 'AUTO',
-        requireHealthy: false,
+        // auto は未検査の無料プロキシをいきなり踏まず、まず direct でページを開く。
+        // ヘルスチェックで生存確認できた出口だけ、次回以降の auto 候補にする。
+        requireHealthy: strategy === 'auto',
       };
       const picks = [];
       const first = this.pool.select(wantProxy);

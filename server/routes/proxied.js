@@ -29,20 +29,21 @@ export function createProxiedHandler(ctx) {
     const qIdx = raw.indexOf('?');
     const pathname = qIdx === -1 ? raw : raw.slice(0, qIdx);
     const search = qIdx === -1 ? '' : raw.slice(qIdx);
-    // basePath 配下にデプロイされた場合のみ前置を落とす
-    const base = config.basePath && pathname.startsWith(config.basePath) ? pathname.slice(config.basePath.length) : pathname;
-    if (!base.startsWith(config.url.prefix + '/')) return next();
+    // urlmap は basePath を含む完全な内部パスでトークンを解決する。
+    // ここで前置きを落とすと、サブパス配信時だけ全ページが 404 になる。
+    const proxyPath = `${config.basePath}${config.url.prefix}`;
+    if (!pathname.startsWith(`${proxyPath}/`)) return next();
 
     let parsed = null;
     try {
-      parsed = urlmap.deproxify(base, search);
+      parsed = urlmap.deproxify(pathname, search);
     } catch (err) {
       ns.debug(() => `deproxify threw: ${err.message}`);
     }
     // デバッグ用フォールバック: /mirage/t/<sid>/abs/<encodeURIComponent(絶対URL)>
     if (!parsed) {
       try {
-        const a = urlmap.parseAbs(base);
+        const a = urlmap.parseAbs(pathname);
         if (a) parsed = { sid: a.sid, url: a.url, ws: a.url.protocol === 'ws:' || a.url.protocol === 'wss:' };
       } catch (err) {
         /* noop */
@@ -175,9 +176,9 @@ export function writeResult(res, out, req) {
 function deproxifyAbs(href, ctx) {
   try {
     const u = new URL(href);
-    const base = ctx.config.basePath && u.pathname.startsWith(ctx.config.basePath) ? u.pathname.slice(ctx.config.basePath.length) : u.pathname;
-    if (!base.startsWith(ctx.config.url.prefix + '/')) return null;
-    const parsed = ctx.engine.urlmap.deproxify(base, u.search);
+    const proxyPath = `${ctx.config.basePath}${ctx.config.url.prefix}`;
+    if (!u.pathname.startsWith(`${proxyPath}/`)) return null;
+    const parsed = ctx.engine.urlmap.deproxify(u.pathname, u.search);
     return parsed ? parsed.url.href : null;
   } catch (err) {
     return null;

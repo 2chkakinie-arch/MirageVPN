@@ -47,7 +47,8 @@ export class WispServer {
   /** http.Server の upgrade を配線する */
   attach(httpServer) {
     if (!this.enabled) return false;
-    const path = this.config.wisp.path;
+    const path = `${this.config.basePath || ''}${this.config.wisp.path}`;
+    const proxyPrefix = `${this.config.basePath || ''}${this.config.url.prefix}`;
     httpServer.on('upgrade', (req, socket, head) => {
       let url;
       try {
@@ -57,7 +58,7 @@ export class WispServer {
         return;
       }
       if (url.pathname !== path) {
-        if (url.pathname.startsWith(`${this.config.url.prefix}/`)) return; // proxied ws は routes 側で処理
+        if (url.pathname.startsWith(`${proxyPrefix}/`)) return; // proxied ws は routes 側で処理
         socket.destroy();
         return;
       }
@@ -346,7 +347,7 @@ export class WispServer {
   summary() {
     return {
       enabled: this.enabled,
-      path: this.config.wisp.path,
+      path: `${this.config.basePath || ''}${this.config.wisp.path}`,
       connections: this.conns.size,
       totalConnections: this.stats.connections,
       streams: this.stats.streams,

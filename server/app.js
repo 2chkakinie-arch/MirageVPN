@@ -118,9 +118,20 @@ export async function createApp(opts = {}) {
   });
 
   /* ---------------- UI ---------------- */
+  // サブパス配信では /vpn/assets/... も public/... に対応させる。
+  if (config.basePath) {
+    app.use(
+      config.basePath,
+      express.static(PUBLIC, { index: false, maxAge: config.env === 'production' ? '30m' : 0, etag: false, fallthrough: true }),
+    );
+  }
+  // /mirage/app/ も sendIndex を通して basePath を index.html に注入する。
+  // 静的ファイルはその下に残し、CSS/JS/画像の配信は従来どおり高速にする。
+  app.get(`${config.basePath}/mirage/app`, (req, res) => sendIndex(res, config));
+  app.get(`${config.basePath}/mirage/app/`, (req, res) => sendIndex(res, config));
   app.use(
     `${config.basePath}/mirage/app`,
-    express.static(PUBLIC, { index: 'index.html', extensions: ['html'], maxAge: config.env === 'production' ? '1h' : 0, etag: false, fallthrough: true }),
+    express.static(PUBLIC, { index: false, extensions: ['html'], maxAge: config.env === 'production' ? '1h' : 0, etag: false, fallthrough: true }),
   );
   app.use(
     express.static(PUBLIC, {
@@ -152,7 +163,7 @@ export async function createApp(opts = {}) {
     if (config.wisp.enabled && !config.isServerless) {
       ctx.wisp = new WispServer({ config, pipeline: engine.pipeline, store: engine.store, guard: engine.guard });
       ctx.wisp.attach(httpServer);
-      ns.info(`WISP 準備完了: ${config.wisp.path}`);
+      ns.info(`WISP 準備完了: ${config.basePath}${config.wisp.path}`);
     } else {
       ns.info(`WISP は無効 (${config.isServerless ? 'serverless では WebSocket 非対応のため UV のみ' : '設定'}) — UV トランスポートで動作します`);
     }
@@ -255,10 +266,11 @@ function mirageAssets(ctx) {
     try {
       const src = await readAsset('mirage/sw.js');
       const cfg = {
-        prefix: config.url.prefix,
-        apiPrefix: config.url.apiPrefix,
-        corePath: config.url.corePath,
+        prefix: `${config.basePath}${config.url.prefix}`,
+        apiPrefix: `${config.basePath}${config.url.apiPrefix}`,
+        corePath: `${config.basePath}${config.url.corePath}`,
         wispUrl: config.wisp.enabled && !config.isServerless ? `${config.basePath}${config.wisp.path}` : null,
+        wispClientUrl: `${config.basePath}/mirage/wisp-client.js`,
         defaultMode: config.transport.defaultMode,
         retries: 2,
         connectTimeoutMs: 3500,
@@ -270,8 +282,8 @@ function mirageAssets(ctx) {
       };
       res.setHeader('content-type', 'text/javascript; charset=utf-8');
       res.setHeader('cache-control', 'no-cache, no-store, must-revalidate');
-      res.setHeader('service-worker-allowed', config.url.swScope || '/');
-      res.send(`/* MirageVPN SW config (injected) */\nself.__MIRAGE_PREFIX=${JSON.stringify(cfg.prefix)};\nself.__MIRAGE_SW_CFG=${JSON.stringify(cfg)};\n${src}`);
+      res.setHeader('service-worker-allowed', `${config.basePath}${config.url.swScope || '/'}` || '/');
+      res.send(`/* MirageVPN SW config (injected) */\nself.__MIRAGE_PREFIX=${JSON.stringify(cfg.prefix)};\nself.__MIRAGE_API_PREFIX=${JSON.stringify(cfg.apiPrefix)};\nself.__MIRAGE_BASE_PATH=${JSON.stringify(config.basePath)};\nself.__MIRAGE_SW_CFG=${JSON.stringify(cfg)};\n${src}`);
     } catch (err) {
       next(err);
     }
@@ -289,15 +301,15 @@ function mirageAssets(ctx) {
 
   r.get(`${config.basePath}/mirage/client-config`, async (req, res) => {
     res.json({
-      prefix: config.url.prefix,
-      apiPrefix: config.url.apiPrefix,
-      corePath: config.url.corePath,
-      swPath: config.url.swPath,
-      swScope: config.url.swScope || '/',
+      prefix: `${config.basePath}${config.url.prefix}`,
+      apiPrefix: `${config.basePath}${config.url.apiPrefix}`,
+      corePath: `${config.basePath}${config.url.corePath}`,
+      swPath: `${config.basePath}${config.url.swPath}`,
+      swScope: `${config.basePath}${config.url.swScope || '/'}` || '/',
       encoding: config.url.encoding,
       basePath: config.basePath,
       mode: config.transport.defaultMode,
-      wisp: { enabled: config.wisp.enabled && !config.isServerless, path: config.wisp.path },
+      wisp: { enabled: config.wisp.enabled && !config.isServerless, path: `${config.basePath}${config.wisp.path}` },
       serverless: config.isServerless,
     });
   });
@@ -341,9 +353,17 @@ async function sendIndex(res, config) {
       html = `<pre>MirageVPN: public/index.html がありません (${err.message})</pre>`;
     }
   }
+  // index.html は public からも使うため、実行時のサブパスをここで一度だけ注入する。
+  // これで /foo/ 配下でも CSS/JS/API が /assets や /mirage に逃げない。
+  const base = config.basePath || '';
+  const rendered = html
+    .replace('<meta name="mirage-base-path" content="">', `<meta name="mirage-base-path" content="${escape(base)}">`)
+    .replaceAll('href="/assets/', `href="${base}/assets/`)
+    .replaceAll('src="/assets/', `src="${base}/assets/`)
+    .replace('href="/mirage/api/threats/report.html"', `href="${base}/mirage/api/threats/report.html"`);
   res.setHeader('content-type', 'text/html; charset=utf-8');
   res.setHeader('cache-control', 'no-cache');
-  res.send(html);
+  res.send(rendered);
   return undefined;
 }
 

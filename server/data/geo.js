@@ -9,6 +9,7 @@
  */
 
 import { LRU, registrableDomain } from '../util.js';
+import { fetchJson } from '../net/outbound.js';
 import { log } from '../log.js';
 
 const ns = log.child('geo');
@@ -175,12 +176,13 @@ export class GeoResolver {
     for (const p of GEO_PROVIDERS) {
       if ((this.providerFail.get(p.name) || 0) > 4) continue;
       try {
-        const res = await fetch(p.url(ip), {
-          signal: AbortSignal.timeout(this.timeoutMs),
-          headers: { accept: 'application/json', 'user-agent': 'MirageVPN/1.0 (geo-resolver)' },
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const parsed = p.parse(await res.json());
+        const parsed = p.parse(
+          await fetchJson(p.url(ip), {
+            timeoutMs: this.timeoutMs,
+            maxBytes: 512 * 1024,
+            headers: { accept: 'application/json', 'user-agent': 'MirageVPN/1.0 (geo-resolver)' },
+          }),
+        );
         if (!parsed || !parsed.country) throw new Error('国コードが取得できません');
         const rec = {
           country: String(parsed.country).toUpperCase().slice(0, 2),
@@ -212,8 +214,12 @@ export class GeoResolver {
   }
 }
 
-/** リクエストヘッダからクライアントの国籍を推定 (CDN ヘッダ優先、無ければ公開 IP を照合) */
-export async function clientCountry(req, geo) {
+/**
+ * リクエストヘッダからクライアントの国籍を推定。
+ * `lookup:false` は高頻度の dashboard status 用。外部 Geo API を待たないので、
+ * API 障害や送信制限で UI 全体が「読み込み中」のままにならない。
+ */
+export async function clientCountry(req, geo, { lookup = true } = {}) {
   const h = req.headers || {};
   const direct =
     h['cf-ipcountry'] ||
@@ -224,6 +230,7 @@ export async function clientCountry(req, geo) {
   if (direct && /^[A-Za-z]{2}$/.test(String(direct))) return { country: String(direct).toUpperCase(), source: 'header' };
   const ip = publicIpOf(req);
   if (!ip) return { country: 'XX', source: 'no-ip' };
+  if (!lookup) return { country: 'XX', source: 'deferred', ip };
   const rec = await geo.resolve(ip);
   return { country: rec.country, city: rec.city, isp: rec.isp, source: rec.source, ip };
 }

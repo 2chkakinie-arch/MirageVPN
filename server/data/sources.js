@@ -13,8 +13,9 @@ import { readFileSync } from 'node:fs';
 import { writeFile, readFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { LRU, parseJson } from '../util.js';
+import { parseJson } from '../util.js';
 import { log } from '../log.js';
+import { fetchOut } from '../net/outbound.js';
 import { normalizeCountry } from './geo.js';
 
 const ns = log.child('lists');
@@ -59,6 +60,56 @@ export const BUILTIN_SOURCES = [
     format: 'proxifly-csv',
     label: 'proxifly (SOCKS5)',
     weight: 1.1,
+  },
+  {
+    id: 'proxifly-socks4',
+    repo: 'proxifly/free-proxy-list',
+    branch: 'main',
+    path: 'proxies/protocols/socks4/data.csv',
+    protocol: 'socks4',
+    format: 'proxifly-csv',
+    label: 'proxifly (SOCKS4)',
+    weight: 0.95,
+  },
+  {
+    id: 'openproxylist-https',
+    repo: 'roosterkid/openproxylist',
+    branch: 'main',
+    path: 'HTTPS.txt',
+    protocol: 'https',
+    format: 'ip:port',
+    label: 'openproxylist (HTTPS)',
+    weight: 0.85,
+  },
+  {
+    id: 'openproxylist-socks4',
+    repo: 'roosterkid/openproxylist',
+    branch: 'main',
+    path: 'SOCKS4.txt',
+    protocol: 'socks4',
+    format: 'ip:port',
+    label: 'openproxylist (SOCKS4)',
+    weight: 0.7,
+  },
+  {
+    id: 'prxchk-http',
+    repo: 'prxchk/proxy-list',
+    branch: 'main',
+    path: 'http.txt',
+    protocol: 'http',
+    format: 'ip:port',
+    label: 'prxchk (HTTP)',
+    weight: 0.8,
+  },
+  {
+    id: 'prxchk-socks5',
+    repo: 'prxchk/proxy-list',
+    branch: 'main',
+    path: 'socks5.txt',
+    protocol: 'socks5',
+    format: 'ip:port',
+    label: 'prxchk (SOCKS5)',
+    weight: 0.8,
   },
   {
     id: 'thespeedx-http',
@@ -158,33 +209,43 @@ export function mirrorUrls({ repo, branch = 'master', path: p }, order = ['raw',
  * 1 つのソースを「どれかのミラーで」取得する。
  * @returns {Promise<{text:string, via:string, bytes:number}|null>}
  */
-export async function fetchText(source, { timeoutMs = 20000, order, fetchImpl = globalThis.fetch } = {}) {
+export async function fetchText(source, { timeoutMs = 20000, order, fetchImpl } = {}) {
   const urls = mirrorUrls(source, order);
   let lastErr = null;
+  // テスト/埋め込み側の差し替えは今まで通り維持する。通常運転は fetchOut を通し、
+  // Node の CA 問題・送信プロキシ・エラー分類を一箇所で処理する。
+  const mockedFetch = typeof fetchImpl === 'function' && fetchImpl !== globalThis.fetch;
   for (const url of urls) {
     try {
-      if (url.includes('api.github.com')) {
-        const res = await fetchImpl(url, {
-          signal: AbortSignal.timeout(timeoutMs),
-          headers: { accept: 'application/vnd.github.raw+json', 'user-agent': 'MirageVPN/1.0' },
-        });
+      const headers = url.includes('api.github.com')
+        ? { accept: 'application/vnd.github.raw+json', 'user-agent': 'MirageVPN/1.0 (list updater)' }
+        : { 'user-agent': 'MirageVPN/1.0 (list updater)', accept: 'text/plain,*/*' };
+      let text;
+      let bytes;
+      let via;
+      if (mockedFetch) {
+        const res = await fetchImpl(url, { signal: AbortSignal.timeout(timeoutMs), headers });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const text = await res.text();
-        // API が JSON を返してきた場合 (accept 無視環境) は base64 をほどく
-        if (text.trimStart().startsWith('{')) {
-          const j = parseJson(text, null);
-          if (j?.content) return { text: Buffer.from(j.content, 'base64').toString('utf8'), via: 'github-api', bytes: j.size || 0 };
-        }
-        return { text, via: 'github-api', bytes: Buffer.byteLength(text) };
+        text = await res.text();
+        bytes = Buffer.byteLength(text);
+        via = new URL(url).hostname;
+      } else {
+        const res = await fetchOut(url, { timeoutMs, headers, maxBytes: 64 * 1024 * 1024 });
+        if (res.status < 200 || res.status >= 300) throw new Error(`HTTP ${res.status}`);
+        text = res.text;
+        bytes = res.bytes;
+        via = url.includes('api.github.com') ? 'github-api' : new URL(url).hostname;
       }
-      const res = await fetchImpl(url, {
-        signal: AbortSignal.timeout(timeoutMs),
-        headers: { 'user-agent': 'MirageVPN/1.0 (list updater)', accept: 'text/plain,*/*' },
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const text = await res.text();
+      if (text.trimStart().startsWith('{')) {
+        // API が JSON を返してきた場合 (accept 無視環境) は base64 をほどく。
+        const j = parseJson(text, null);
+        if (j?.content) {
+          const decoded = Buffer.from(String(j.content).replace(/\s/g, ''), 'base64');
+          return { text: decoded.toString('utf8'), via, bytes: j.size || decoded.length };
+        }
+      }
       if (text.length < 2) throw new Error('empty response');
-      return { text, via: new URL(url).hostname, bytes: Buffer.byteLength(text) };
+      return { text, via, bytes: bytes || Buffer.byteLength(text) };
     } catch (err) {
       lastErr = err;
     }
@@ -205,9 +266,21 @@ const PROXY_LINE =
  * @returns {{protocol:ProxyProtocol,host:string,port:number,username?:string,password?:string,country?:string,city?:string,anon?:boolean,schemeUrl:string}|null}
  */
 export function parseProxyLine(line, fallbackProtocol = 'http') {
-  const raw = String(line).trim();
-  if (!raw || raw.startsWith('#') || raw.startsWith('//') || raw.startsWith('!')) return null;
+  const original = String(line).trim();
+  if (!original || original.startsWith('#') || original.startsWith('//') || original.startsWith('!')) return null;
+  // 国旗絵文字や応答時間を先頭に付けるリストにも対応する。
+  // 以前は行全体を ^ から解析していたため openproxylist の最新形式が 0 件になっていた。
+  let raw = original;
+  let start = 0;
   let m = PROXY_LINE.exec(raw);
+  if (!m) {
+    const hit = raw.search(/(?:https?|socks[45]a?|socks5h):\/\/|(?:\d{1,3}\.){3}\d{1,3}:\d{2,5}/i);
+    if (hit > 0) {
+      start = hit;
+      raw = raw.slice(hit);
+      m = PROXY_LINE.exec(raw);
+    }
+  }
   if (!m) {
     // `ip:port user:pass` や `ip:port:user:pass` 形式
     const sp = raw.split(/\s+/);
@@ -231,6 +304,7 @@ export function parseProxyLine(line, fallbackProtocol = 'http') {
     .replace(/5h$/, '5');
   const protocol = ['http', 'https', 'socks4', 'socks4a', 'socks5'].includes(proto) ? proto : fallbackProtocol;
   const rest = g.rest || '';
+  const countryFromLine = /(?:^|\s)([A-Z]{2})(?:\s|$|\[)/.exec(original.slice(start));
   const countryFromTail = /\[?([A-Z]{2})\]?\s*$/.exec(rest.split(/[\s|]/).filter(Boolean).slice(-1)[0] || '');
   return {
     protocol,
@@ -238,7 +312,7 @@ export function parseProxyLine(line, fallbackProtocol = 'http') {
     port,
     username: g.user || undefined,
     password: g.pass || undefined,
-    country: normalizeCountry(g.country) || normalizeCountry(countryFromTail?.[1]) || undefined,
+    country: normalizeCountry(g.country) || normalizeCountry(countryFromLine?.[1]) || normalizeCountry(countryFromTail?.[1]) || undefined,
     anon: /elite|anonymous/i.test(rest) || undefined,
     schemeUrl: `${protocol}://${host}:${port}`,
   };
@@ -402,14 +476,24 @@ export function resolveSources(cfg) {
 export async function fetchSourceText(source, opts = {}) {
   if (source.direct) {
     try {
-      const res = await (opts.fetchImpl || globalThis.fetch)(source.url, {
-        signal: AbortSignal.timeout(opts.timeoutMs || 20000),
-        headers: { 'user-agent': 'MirageVPN/1.0 (list updater)' },
+      if (typeof opts.fetchImpl === 'function' && opts.fetchImpl !== globalThis.fetch) {
+        const res = await opts.fetchImpl(source.url, {
+          signal: AbortSignal.timeout(opts.timeoutMs || 20000),
+          headers: { 'user-agent': 'MirageVPN/1.0 (list updater)' },
+        });
+        if (!res.ok) return null;
+        const text = await res.text();
+        return { text, via: new URL(source.url).hostname, bytes: Buffer.byteLength(text) };
+      }
+      const res = await fetchOut(source.url, {
+        timeoutMs: opts.timeoutMs || 20000,
+        maxBytes: 64 * 1024 * 1024,
+        headers: { 'user-agent': 'MirageVPN/1.0 (list updater)', accept: 'text/plain,*/*' },
       });
-      if (!res.ok) return null;
-      const text = await res.text();
-      return { text, via: new URL(source.url).hostname, bytes: Buffer.byteLength(text) };
-    } catch {
+      if (res.status < 200 || res.status >= 300) return null;
+      return { text: res.text, via: new URL(source.url).hostname, bytes: res.bytes };
+    } catch (err) {
+      ns.debug(() => `direct source ${source.id} failed: ${err.message}`);
       return null;
     }
   }

@@ -31,15 +31,16 @@ export function attachWsProxy(httpServer, ctx) {
     const search = qIdx === -1 ? '' : raw.slice(qIdx);
     if (!/\/ws\//.test(pathname)) {
       // 当方が知らない upgrade には何も答えない (WISP が先に処理している)
-      if (pathname.startsWith(config.url.prefix + '/')) {
+      if (pathname.startsWith(`${config.basePath}${config.url.prefix}/`)) {
         try {
           clientSocket.destroy();
         } catch (e) {}
       }
       return;
     }
-    const base = config.basePath && pathname.startsWith(config.basePath) ? pathname.slice(config.basePath.length) : pathname;
-    const withoutWs = base.replace('/ws/', '/');
+    // urlmap は basePath を含む完全なパスを受け取る。前置きを落とすと
+    // サブパス配信時の WebSocket だけ 404 になる。
+    const withoutWs = pathname.replace('/ws/', '/');
     let parsed = null;
     try {
       parsed = urlmap.deproxify(withoutWs, search);

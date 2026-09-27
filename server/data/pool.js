@@ -273,7 +273,7 @@ export class ProxyPool {
     if (exclude.has(rec.key)) return false;
     if (protocols && protocols.length && !protocols.includes(rec.protocol)) return false;
     if (rec.bannedUntil > now) return false;
-    if (requireHealthy && rec.checked && rec.consecutiveFails >= this.config.egress.failThreshold) return false;
+    if (requireHealthy && (!rec.checked || rec.consecutiveFails >= this.config.egress.failThreshold)) return false;
     if (httpsTarget && !rec.tlsCapable && rec.protocol !== 'https' && rec.protocol !== 'socks5' && rec.protocol !== 'socks4' && rec.protocol !== 'socks4a') {
       // http プロキシでも CONNECT が通れば https 可。実績 (httpsOk) が無いものは避ける傾向にする
       if (rec.checked && !rec.httpsOk) return false;
@@ -372,6 +372,7 @@ export class ProxyPool {
     }
     const sources = resolveSources(cfg);
     const results = await mapLimit(sources, 4, async (source) => {
+      const started = Date.now();
       const got = await fetchSourceText(source, {
         timeoutMs: cfg.lists.fetchTimeoutMs,
         order: cfg.lists.mirrorOrder,
@@ -385,39 +386,83 @@ export class ProxyPool {
             snap = null;
           }
         }
-        this.stats.record(source.id, { ok: false, error: 'unreachable' });
-        return { source, text: snap, via: 'disk-snapshot' };
+        return { source, text: snap, via: snap ? 'disk-snapshot' : 'unreachable', ms: Date.now() - started };
       }
       if (cfg.state.dir) {
         await saveSnapshot(`${cfg.state.dir}/lists`, source.id, got.text).catch(() => {});
       }
-      this.stats.record(source.id, { ok: true, count: 0, bytes: got.bytes, via: got.via, ms: Date.now() - t0 });
-      return { source, text: got.text, via: got.via };
+      return { source, text: got.text, via: got.via, bytes: got.bytes, ms: Date.now() - started };
     });
 
     let total = 0;
+    let addedTotal = 0;
     let fromNetwork = 0;
-    for (const { source, text, via } of results.filter(Boolean)) {
-      if (!text) continue;
+    let errors = 0;
+    let successfulSources = 0;
+    // mapLimit は {ok,value,error} の envelope を返す。ここを直接 destructure すると
+    // source が undefined になり、全ソース取得後に `reading 'id'` で更新全体が落ちる。
+    for (let index = 0; index < sources.length; index++) {
+      const source = sources[index];
+      const row = results[index];
+      const item = row?.ok ? row.value : null;
+      if (!item) {
+        errors++;
+        this.stats.record(source.id, { ok: false, error: row?.error?.message || 'unreachable', via: 'error', ms: Date.now() - t0 });
+        continue;
+      }
+      const { text, via, bytes, ms } = item;
+      if (!text) {
+        errors++;
+        this.stats.record(source.id, { ok: false, error: 'unreachable', via, ms });
+        continue;
+      }
       const entries = parseProxies(text, source.format || 'ip:port', source.protocol || 'http');
       const added = this.ingest(entries, { sourceId: source.id, weight: source.weight ?? 1 });
+      const network = via !== 'disk-snapshot';
+      this.stats.record(source.id, {
+        ok: network,
+        count: entries.length,
+        bytes: bytes || Buffer.byteLength(text),
+        via,
+        ms,
+        error: network ? undefined : 'network unavailable; snapshot used',
+      });
       total += entries.length;
-      if (via !== 'disk-snapshot') fromNetwork += entries.length;
+      addedTotal += added;
+      if (network) {
+        fromNetwork += entries.length;
+        successfulSources++;
+      } else {
+        errors++;
+      }
       ns.info(`source ${source.id}: ${entries.length} proxies (+${added}) via ${via}`);
     }
 
     if (!total && cfg.lists.useBundledSeed) {
       const seeded = loadBundledSeeds();
-      total = this.ingest(seeded, { sourceId: 'bundled-seed', weight: 0.8 });
-      ns.info(`ネットワークから取得できなかったため同梱シードを使用 (${total})`);
+      const seededAdded = this.ingest(seeded, { sourceId: 'bundled-seed', weight: 0.8 });
+      total = seeded.length;
+      addedTotal += seededAdded;
+      ns.info(`ネットワークから取得できなかったため同梱シードを使用 (${seededAdded})`);
     }
 
     this.#trim();
     this.lastRefresh = Date.now();
     this.__allKeys = null;
     if (probe) await this.healthCheck({ limit: 120 });
-    this.emit('refresh', { total, ms: Date.now() - t0, fromNetwork });
-    return { ok: true, total, fromNetwork, ms: Date.now() - t0 };
+    const elapsed = Date.now() - t0;
+    this.emit('refresh', { total, added: addedTotal, ms: elapsed, fromNetwork });
+    return {
+      ok: fromNetwork > 0 || total > 0,
+      total,
+      added: addedTotal,
+      fromNetwork,
+      successfulSources,
+      errors,
+      size: this.records.size,
+      countries: this.byCountry.size,
+      ms: elapsed,
+    };
   }
 
   /** 同梱シードのみで起動させる (オフライン環境 / Vercel コールドスタート対策) */
