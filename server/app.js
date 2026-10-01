@@ -27,6 +27,7 @@ import { randomUUID, createHmac } from 'node:crypto';
 import { loadConfig } from './config.js';
 import { createEngine } from './engine.js';
 import { createApiRouter } from './routes/api.js';
+import { createAiModeRouter } from './routes/aimode.js';
 import { createProxiedHandler } from './routes/proxied.js';
 import { rateLimitMiddleware, RateLimiter } from './routes/ratelimit.js';
 import { attachWsProxy } from './routes/ws-proxy.js';
@@ -108,6 +109,11 @@ export async function createApp(opts = {}) {
 
   /* ---------------- API ---------------- */
   app.use(`${config.basePath}${config.url.apiPrefix}`, express.json({ limit: '512kb' }), promisifyRouter(createApiRouter(ctx)));
+
+  /* ---------------- AI Mode (Google 検索の AI を API 化) ---------------- */
+  if (ctx.engine.aimode?.enabled) {
+    app.use(createAiModeRouter(ctx));
+  }
 
   /* ---------------- プロキシ本体 ---------------- */
   const proxied = createProxiedHandler(ctx);

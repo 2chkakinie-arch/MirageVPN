@@ -1,0 +1,25 @@
+<!doctype html>
+<!--
+  MirageVPN 自作の最小フィクスチャ: 追加質問 (フォローアップ) チップが
+  aimc コンテナ内にあるケース。Google は回答の後に疑問形のチップを並べる。
+  実 DOM ではほぼ出ないことが多いので、ロジックの確認用。
+-->
+<html lang="en">
+<head><meta charset="utf-8"><title>test - Google Search</title></head>
+<body>
+<div role="main">
+  <div data-subtree="aimc">
+    <div class="answer">
+      <p>Paris is the capital of France. It has been the capital since the 10th century.</p>
+      <p>AI can make mistakes, so double-check its answers</p>
+    </div>
+    <div class="followups" role="list">
+      <div role="listitem" jsaction="click">What is the population of Paris?</div>
+      <div role="listitem" jsaction="click">How far is Paris from London?</div>
+      <div role="listitem" jsaction="click">Not a question</div>
+      <button aria-label="Copy">Copy</button>
+    </div>
+  </div>
+</div>
+</body>
+</html>

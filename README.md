@@ -28,6 +28,31 @@ node server/index.js        # → http://localhost:8080
 | タブ型 UI・最高峰のデザイン | タブブラウザ風のシェル (新規/閉じる/戻る/進む、`Ctrl/⌘+T/W/L/1..9`)、aurora + glass のダーク/ライト、国グリッドピッカー、プール表、スパークライン、脅威フィード、設定パネル、パニックキー | `public/index.html`, `public/assets/{app.css,app.js}` |
 | Vercel / Render / Railway にデプロイ | `vercel.json` (rewrite → `api/index.js`)、`render.yaml` (Blueprints)、`railway.json` + `Procfile`、`Dockerfile` (non-root + healthcheck)、`docker-compose.yml` | リポジトリ直下 |
 
+## 1.5 Google AI Mode を API として使う (`MIRAGE_AIMODE=1`)
+
+Google AI Mode に公式 API はありません。この repo は「出口を国籍で選んで IP をごまかす」
+パイプラインを既に持っているので、**AI Mode を自前 API 化する際の一番つらい部分
+(geo・出口ローテーション・レート) がそのまま乗ります**。追加したのは抽出器と quota だけ。
+
+```bash
+MIRAGE_AIMODE=1 MIRAGE_AIMODE_COUNTRY=US node server/index.js
+
+curl -s 'http://localhost:8080/mirage/api/aimode/query?q=best+CRM+for+small+teams'
+# → {answer:"## ...", citations:[{url,domain,title}], sources:[{title,date,source,snippet}], followUps:[]}
+
+# OpenAI 互換 (Open WebUI / LangChain / Cursor からそのまま)
+curl -s http://localhost:8080/mirage/v1/chat/completions \
+  -H 'content-type: application/json' \
+  -d '{"model":"google-ai-mode","messages":[{"role":"user","content":"..."}]}'
+```
+
+* `serp` (既定・自前) / `relay` (外部ブラウザリレー) / `serpapi` (有料) を
+  `MIRAGE_AIMODE_PROVIDER` で差し替え可能。戻り値の形は共通。
+* Google は「IP あたりの累積予算」で弾く (公開計測で約 40 問/時)。だから
+  **quota・最小間隔・CAPTCHA 後の自動クールダウン**を内蔵。
+* 多ターン会話・`/goto?url=` 解決の詳細と壊れ方の対策は
+  **[docs/ai-mode-api.md](docs/ai-mode-api.md)** に正直に書いてあります。
+
 ## 2. アーキテクチャ
 
 ```
@@ -176,6 +201,16 @@ GET  /mirage/api/threats/report.json    ダウンロード
 POST /mirage/api/threats/purge          履歴の自動削除
 GET  /mirage/api/metrics                req/s・延迟 p50/p95・モード別
 GET  /mirage/api/docs                   一覧 ( mechanically 読む用)
+
+# --- AI Mode (Google 検索の AI を API 化・既定 OFF) ---
+GET  /mirage/api/aimode/status          予算・直近の失敗・プロバイダ
+GET  /mirage/api/aimode/query?q=        回答 + 引用 + 出典カード (JSON)
+POST /mirage/api/aimode/query {q}       同上
+POST /mirage/api/aimode/chat {messages} 会話の最後の user を投げる
+DELETE /mirage/api/aimode/cache         キャッシュ全掃除
+GET  /mirage/api/aimode/debug/html?q=   生 HTML (MIRAGE_AIMODE_DEBUG=1 のみ)
+POST /mirage/v1/chat/completions        OpenAI 互換 (stream 対応)
+GET  /mirage/v1/models                  OpenAI 互換のモデル一覧
 ```
 
 ## 6. セキュリティ上の注意 (正直に)
@@ -196,6 +231,7 @@ GET  /mirage/api/docs                   一覧 ( mechanically 読む用)
 * Cosmetic 規則は uBO の `+js()` / procedural selector 系を**サポートしません** (素の CSS に変換できるものだけ)。
 * `wisp` は長寿命プロセスが必要です (Vercel では自動 OFF)。
 * 大きな動画/ドラッグ&ドロップ系・Service Worker を使う上流サイト (PWA) は、当方の SW と競合するため正しく動かないことがあります (core.js が上流 SW 登録を止めます)。
+* AI Mode 連携は Google の DOM 変更で壊れます (抽出器は実 DOM フィクスチャでテスト済みだが、継続的な監視が必要)。多ターン会話は未対応 (1 問 1 レスポンス)。
 
 ## 8. 開発
 

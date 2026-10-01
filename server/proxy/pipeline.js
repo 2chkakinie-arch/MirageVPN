@@ -183,7 +183,18 @@ export class Pipeline {
     }
 
     // ---------- 8. 改写 ----------
-    const out = await this.#transform({ req, url, upstream, kind, urlVerdict, egress });
+    // req.raw = 上流の生バイトが欲しい内部利用 (AI Mode 抽出など)。
+    // guard / shields / 出口選択 / 計装 は共通で効かせたまま、改写と
+    // ドキュメント脅威スキャン (要素を削る側) だけを飛ばす。
+    const out = req.raw
+      ? {
+          body: upstream.body,
+          info: { rewriteSkipped: true, threatScore: urlVerdict?.score || 0, threatFindings: urlVerdict?.findings?.length || 0 },
+          blocked: 0,
+          stripped: 0,
+          rewritten: false,
+        }
+      : await this.#transform({ req, url, upstream, kind, urlVerdict, egress });
     if (this.cacheEnabled && CACHEABLE.has(kind) && upstream.status === 200 && !upstream.headers.get('set-cookie') && upstream.body?.length <= this.cacheMaxEntry) {
       const sanitized = new Map();
       for (const [k, v] of upstream.headers) {

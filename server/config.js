@@ -252,6 +252,57 @@ export function loadConfig(env = process.env) {
       bangPrefix: '!',
     },
 
+    /* ---------- AI Mode (Google 検索の AI を API として使う) ---------- */
+    // 公式 API は存在しない。serp (自前スクレイプ) / relay (外部ブラウザ) /
+    // serpapi (有料) の 3 経路を選べる。既定は自前の serp。
+    aimode: {
+      enabled: BOOL(env.MIRAGE_AIMODE, false),
+      /** serp = 自前 (udm=50) / relay = 外部リレー / serpapi = 有料 SERP API */
+      provider: ['relay', 'serpapi'].includes(env.MIRAGE_AIMODE_PROVIDER) ? env.MIRAGE_AIMODE_PROVIDER : 'serp',
+      /** AI Mode は geo 制限があるので出口国を固定する */
+      country: (env.MIRAGE_AIMODE_COUNTRY || 'US').toUpperCase().slice(0, 2),
+      /** 出口戦略: pool (既定) = その国のプロキシだけ / auto = 健全な proxy→direct /
+       *  direct = 自ホストの IP (US にあるホストだけ) */
+      egressStrategy: ['auto', 'direct'].includes(env.MIRAGE_AIMODE_EGRESS_STRATEGY) ? env.MIRAGE_AIMODE_EGRESS_STRATEGY : 'pool',
+      /** その国が見つからないとき他国へ譲歩するか (既定 false = geo を守る) */
+      egressAllowFallback: BOOL(env.MIRAGE_AIMODE_EGRESS_FALLBACK, false),
+      /** CAPTCHA/上流エpsilon時の出口変更リトライ回数 */
+      retries: NUM(env.MIRAGE_AIMODE_RETRIES, 1),
+      lang: env.MIRAGE_AIMODE_LANG || 'en',
+      /** 接続先 (テスト/自前 origin 用。既定は本物の Google) */
+      baseUrl: env.MIRAGE_AIMODE_BASE_URL || 'https://www.google.com',
+      /** 同意ページを避けるクッキー (例: SOCS=CAI / CONSENT=YES+cb) */
+      consentCookie: env.MIRAGE_AIMODE_CONSENT_COOKIE || 'SOCS=CAI',
+      /** 引用の /goto?url= 包装を HTTP で解く (出口を余分に使う) */
+      resolveWrapped: BOOL(env.MIRAGE_AIMODE_RESOLVE_WRAPPED, true),
+      maxResolveCitations: NUM(env.MIRAGE_AIMODE_MAX_RESOLVE, 12),
+      /** 抽出の調整 (DOM が変わった時の逃げ道) */
+      containers: LIST(env.MIRAGE_AIMODE_CONTAINERS, []),
+      disclaimerRe: env.MIRAGE_AIMODE_DISCLAIMER_RE ? safeRegex(env.MIRAGE_AIMODE_DISCLAIMER_RE) : null,
+      sourcesLabelRe: env.MIRAGE_AIMODE_SOURCES_RE ? safeRegex(env.MIRAGE_AIMODE_SOURCES_RE) : null,
+      googleHosts: LIST(env.MIRAGE_AIMODE_GOOGLE_HOSTS, []),
+      /** 予算 (Google にブロックされないための自制) */
+      perHour: NUM(env.MIRAGE_AIMODE_PER_HOUR, 30),
+      perDay: NUM(env.MIRAGE_AIMODE_PER_DAY, 200),
+      minIntervalMs: NUM(env.MIRAGE_AIMODE_MIN_INTERVAL, 4000),
+      cooldownMs: NUM(env.MIRAGE_AIMODE_COOLDOWN, 1800000),
+      /** キャッシュ (同じ問い合わせで出口を浪費しない) */
+      cacheTtlMs: NUM(env.MIRAGE_AIMODE_CACHE_TTL, 900000),
+      cacheMax: NUM(env.MIRAGE_AIMODE_CACHE_MAX, 300),
+      /** relay プロバイダ (Playwright 常駐ブラウザ等) */
+      relayUrl: env.MIRAGE_AIMODE_RELAY_URL || '',
+      relayKey: env.MIRAGE_AIMODE_RELAY_KEY || '',
+      relayTimeoutMs: NUM(env.MIRAGE_AIMODE_RELAY_TIMEOUT, 90000),
+      /** serpapi プロバイダ */
+      serpApiKey: env.MIRAGE_SERPAPI_KEY || '',
+      /** 認証 (設定すると Bearer / ?key= が必須) */
+      token: env.MIRAGE_AIMODE_TOKEN || '',
+      /** 生 HTML を返すデバッグ API を許可するか */
+      debug: BOOL(env.MIRAGE_AIMODE_DEBUG, false),
+      /** OpenAI 互換エンドポイントのモデル名 */
+      openaiModelId: env.MIRAGE_AIMODE_MODEL_ID || 'google-ai-mode',
+    },
+
     /* ---------- observability ---------- */
     telemetry: {
       /** 内部メトリクス (req/s, p95, block数) を /mirage/api/metrics で公開 */
@@ -274,6 +325,16 @@ function normalizeBase(p) {
 
 function randomHex(n) {
   return randomBytes(n).toString('hex');
+}
+
+/** 環境変数の正規表現を安全にコンパイル (壊れていたら null) */
+function safeRegex(pattern) {
+  try {
+    const re = new RegExp(pattern, 'i');
+    return re.source.length > 4 ? re : null;
+  } catch {
+    return null;
+  }
 }
 
 export default loadConfig;

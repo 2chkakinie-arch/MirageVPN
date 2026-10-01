@@ -23,6 +23,7 @@ import { StateStore } from './state/store.js';
 import { Metrics } from './metrics.js';
 import { Http1Pool } from './net/http1.js';
 import { startScheduler } from './data/scheduler.js';
+import { AiModeClient } from './aimode/client.js';
 import { log } from './log.js';
 
 const ns = log.child('engine');
@@ -71,6 +72,8 @@ export async function createEngine(config = loadConfig(process.env)) {
     metrics,
     httpPool,
     pipeline,
+    /** Google AI Mode を API として叩くクライアント (無効なら no-op) */
+    aimode: new AiModeClient({ config, engine: null }),
     lastListRefresh: 0,
     lastAdRefresh: 0,
     bootedAt: Date.now(),
@@ -239,6 +242,9 @@ export async function createEngine(config = loadConfig(process.env)) {
       httpPool.close();
     },
   };
+
+  // aimode は pipeline/pool/cookies を後から必要とする (循環しないようここで差し込む)
+  engine.aimode.engine = engine;
 
   return engine;
 }
